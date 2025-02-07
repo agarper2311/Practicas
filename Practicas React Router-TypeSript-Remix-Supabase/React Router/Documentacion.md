@@ -44,10 +44,9 @@ export default [
 ] satisfies RouteConfig;
 ```
 
-
-Como yo lo tengo escrito:
-
-> [!NOTE]
+>  [!NOTE]
+> Como yo lo tengo escrito:
+> 
 >
 >```bash
 >/*
@@ -65,8 +64,7 @@ Como yo lo tengo escrito:
 >    // pattern ^           ^ module file
 >  ] satisfies RouteConfig;
 >```
-
-> [!NOTE]
+> 
 > Ejemplo de la página web de ReactRouter
 > Ejemplo más grande de configuración de rutas:
 > 
