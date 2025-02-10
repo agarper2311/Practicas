@@ -1,3 +1,5 @@
+// Routes.ts solo define la estructura de la aplicación
+
 // import { type RouteConfig, index } from "@react-router/dev/routes";
 
 /*
@@ -9,16 +11,11 @@ import {
 } from "@react-router/dev/routes"
 
 //export default [index("routes/home.tsx")] satisfies RouteConfig;
-/*
-export default [
-    route("home", "./routes/home.tsx"),
-    // pattern ^           ^ module file
-  ] satisfies RouteConfig;
-*/
-  export async function loader() {
-    return { message: "Hello, world!"};
-  }
 
-  export default function MyRoute({ loaderData }) {
-    return <h1><{loaderData.message}</h1>
-  }
+export default [
+    route("/home", "./routes/home.tsx"),
+    // pattern ^           ^ ruta de archivo
+    route("/avisos", "./routes/avisos.tsx"),
+    route("/aviso/:id", "./routes/avisoId.tsx")
+  ] satisfies RouteConfig;
+
