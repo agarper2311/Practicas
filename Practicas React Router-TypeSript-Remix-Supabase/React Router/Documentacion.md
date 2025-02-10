@@ -93,3 +93,14 @@ export default [
 >   ]),
 > ] satisfies RouteConfig;
 > ```
+
+
+## Módulos de ruta:
+
+Los archivos a los que hace referencia definen el comportamiento de cada ruta: routes.ts
+
+```bash
+route("teams/:teamId", "./team.tsx"),
+//           route module ^^^^^^^^
+```
+
