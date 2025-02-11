@@ -933,3 +933,781 @@ export async function action({
 
 // existing code
 ```
+
+## Discusión sobre la mutación
+> 😑 Funcionó, pero no tengo ni idea de lo que está pasando aquí...
+
+Profundicemos un poco...
+
+Ábrete y mira los elementos. Fíjate en que cada uno de ellos tiene un nombre: `app/routes/edit-contacts.tsx` `form`
+
+`app/routes/edit-contacts.tsx`
+```bash
+<input
+  aria-label="First name"
+  defaultValue={contact.first}
+# name="first"
+  placeholder="First"
+  type="text"
+/>
+```
+
+Sin JavaScript, cuando se envía un formulario, el navegador creará `FormData` y lo establecerá como el cuerpo de la solicitud cuando la envíe al servidor. Como se mencionó anteriormente, React Router evita eso y emula el navegador enviando la solicitud a su función con `fetch` en su lugar, incluuido el `FormData`. `action`
+
+Se puede acceder a cada campo de la carpeta. Por ejemplo, dado el campo de entrada de arriba, podría acceder al nombre y apellido de la siguiente manera: `form` `formData.get(name)`
+
+`app/routes/edit-contact.tsx`
+```bash
+export const action = async ({
+  params,
+  request,
+}: ActionFunctionArgs) => {
+  const formData = await request.formData();
+# const firstName = formData.get("first");
+# const lastName = formData.get("last");
+  // ...
+};
+```
+Dado que tenemos un puñado de campos de formulario, usamos `Object.fromEntries` para recopilarlos todos en un objeto, que es exactamente lo que quiere nuestra función. `updateContact`
+
+`app/routes/edit-contact.tsx`
+```bash
+const updates = Object.fromEntries(formData);
+updates.first; // "Some"
+updates.last; // "Name"
+```
+
+Aparte de la función, ninguna de estas API que estamos discutiendo es proporcionada por React Router: `request`, `request.formData`, `Object.fromEntries` son todas proporcionadas por la plataforma web. `action`
+
+Después de que terminemos, observe la redirección al final: `action`
+
+`app/routes/edit-contact.tsx`
+```bash
+export async function action({
+  params,
+  request,
+}: Route.ActionArgs) {
+  invariant(params.contactId, "Missing contactId param");
+  const formData = await request.formData();
+  const updates = Object.fromEntries(formData);
+  await updateContact(params.contactId, updates);
+  return redirect(`/contacts/${params.contactId}`);
+}
+```
+
+Tanto el `action` como las funciones pueden devolver un (tiene sentido, ya que recibieron una `request`). El asistente de `redireccionamiento` o `redirect` solo facilita la devolución de una `respuesta` o `response` que le dice a la aplicación que cambie su ubicación. `loader` `Response`
+
+Sin el enrutamiento del lado del cliente, si un servidor se refirige después de una solicitud, la nueva página obtendría los datos más recientes y se renderizaría. Como aprendimos antes, React Router emula este modelo y revalida automáticamente los datos en la página después de la llamada. Es por eso que la barra lateral se actualiza automáticamente cuando guardamos el formulario. El código de revalidación adicional no existe sin el enrutamiento del lado del cliente, por lo que tampoco es necesario que exista con el enrutamiento del lado del cliente en React Router. `POST` `action`
+
+Una última cosa. Sin JavaScript, la redirección sería una redirección normal. Sin embargo, con JavaScript es una redirección del lado del cliente, por lo que el usuario no pierde el estado del cliente, como las posiciones de desplazamiento o el estado del componente.
+
+## Redireccionamiento de nuevos registros a la página de edición
+
+Ahora que sabemos como redirigir, actualicemos la acción que crea nuevos contactos para redirigir a la página de edición:
+
+### 👉 Redirigir a la página de edición del nuevo registro
+
+`app/root.tsx`
+```bash
+import {
+  Outlet,
+  Scripts,
+  ScrollRestoration,
+  isRouteErrorResponse,
+#  redirect,
+} from "react-router";
+// existing imports
+
+export async function action() {
+  const contact = await createEmptyContact();
+#  return redirect(`/contacts/${contact.id}/edit`);
+}
+
+// existing code
+
+```
+
+Ahora, cuando hacemos clic en "Nuevo", deberíamos terminar en la página de edición:
+
+![alt text](image-6.png)
+
+## Estilo de enlace activo
+
+Ahora que tenemos un montón de registros, no está claro cuál estamos viendo en la barra lateral.
+Podemos usar `NavLink` para solucionar esto.
+
+### 👉 Reemplace `<Link>` por `<NavLink>` en la barra lateral
+
+`app/layouts/sidebar.tsx`
+```bash
+import { Form, Link, NavLink, Outlet } from "react-router";
+
+// existing imports and exports
+
+export default function SidebarLayout({
+  loaderData,
+}: Route.ComponentProps) {
+  const { contacts } = loaderData;
+
+  return (
+    <>
+      <div id="sidebar">
+        {/* existing elements */}
+        <ul>
+          {contacts.map((contact) => (
+            <li key={contact.id}>
+              <NavLink
+                className={({ isActive, isPending }) =>
+                  isActive
+                    ? "active"
+                    : isPending
+                    ? "pending"
+                    : ""
+                }
+                to={`contacts/${contact.id}`}
+              >
+                {/* existing elements */}
+              </NavLink>
+            </li>
+          ))}
+        </ul>
+        {/* existing elements */}
+      </div>
+      {/* existing elements */}
+    </>
+  );
+}
+```
+
+Tenga en cuenta que estamos pasando una función cuando el usuario está en la URL que coincide, entonces será verdadero. Cuando esté a punto de estar activo (los datos aún se están cargando), entonces será verdadero. Esto nos permite indicar fácilmente donde está el usuario y también proporcionar información inmediata cuando se hace clic en los enlaces pero es necesario cargar los datos. `className` `<NavLink to>` `isActive` `isPending`
+
+![alt text](image-7.png)
+
+## Interfaz de usuario pendiente global
+
+A medida que el usuario navega por la aplicación, React Router dejará la página anterior a medida que se cargan los datos para la página siguiente. Es posible que haya notado que la aplicación no responde un poco al hacer clic entre la lista. Proporcionemos al usuario algunos comentarios para que la aplicación no se sienta que no responde.
+
+React Router administra todo el estado detrás de escena y revela las piezas que necesita para crear aplicaciones web dinámicas. En este caso, usaremos el gancho `useNavigation`.
+
+### Use `useNavigation` para agregar una interfaz de usuario pendiente global
+
+`app/layouts/sidebar.tsx`
+```bash
+import {
+  Form,
+  Link,
+  NavLink,
+  Outlet,
+#  useNavigation,
+} from "react-router";
+
+export default function SidebarLayout({
+  loaderData,
+}: Route.ComponentProps) {
+  const { contacts } = loaderData;
+#  const navigation = useNavigation();
+
+  return (
+    <>
+      {/* existing elements */}
+      <div
+    #    className={
+    #      navigation.state === "loading" ? "loading" : ""
+    #    }
+        id="detail"
+      >
+        <Outlet />
+      </div>
+    </>
+  );
+}
+
+```
+
+`useNavigation` devuelve el estado de navegación actual: puede ser uno de `"idle"` `"loading"` `"submitting"`
+
+En nuestro caso, añadimos una clase a la parte principal de la aplicación si no estamos inactivos. Luego, el CSS agrega un agradable desvanecimiento después de un breve retraso (para evitar parpadear la interfaz de usuario para cargas rápidas). Sin embargo, puedes hacer lo que quieras, como mostrar un girador o una barra de carga en la parte superior. `"loading"`
+
+![alt text](image-8.png)
+
+## Eliminación de registros
+
+Si revisamos el código en la ruta de contacto, podemos encontrar que el botón de eliminar se ve así
+
+`app/routes/contact.tsx`
+```bash
+<Form
+  action="destroy"
+  method="post"
+  onSubmit={(event) => {
+    const response = confirm(
+      "Please confirm you want to delete this record."
+    );
+    if (!response) {
+      event.preventDefault();
+    }
+  }}
+>
+  <button type="submit">Delete</button>
+</Form>
+```
+
+Tenga en cuenta los puntos, al igual que, puede tomar un valor relativo. Dado que el formulario se representa en la ruta, una acción relativa enviará el formulario cuando se haga clic. `action` `"destroy"` `<Lint to>` `<Form action>` `contacts/:contactId` `destroy` `contacts/:contactId/destroy`
+
+En este punto, debe saber todo lo que necesita saber para que el botón Eliminar funcione. ¿Tal vez intentarlo antes de seguir adelante? Necesitarás:
+
+1. Una nueva ruta.
+2. Y en esa ruta `action`.
+3. `deleteCOntact` de `app/data.ts`
+4. `redirect` a algún lugar después
+
+### 👉 Configurar el módulo de ruta "destroy"
+
+```bash
+touch app/routes/destroy-contact.tsx
+```
+
+`app/routes.ts`
+```bash
+export default [
+  // existing routes
+  route(
+    "contacts/:contactId/destroy",
+    "routes/destroy-contact.tsx"
+  ),
+  // existing routes
+] satisfies RouteConfig;
+```
+
+### 👉 Agregar la acción de destrucción
+
+`app/routes/destroy-contact.tsx`
+```bash
+import { redirect } from "react-router";
+import type { Route } from "./+types/destroy-contact";
+
+import { deleteContact } from "../data";
+
+export async function action({ params }: Route.ActionArgs) {
+  await deleteContact(params.contactId);
+  return redirect("/");
+}
+```
+Muy bien, navegue hasta un registro y haga clic en el botón "Eliminar". ¡Funciona!
+
+> 😅 Todavía estoy confundido por qué todo esto funciona
+
+Cuando el usuario hace clic en el botón Enviar:
+
+1. `<Form>` Evita el comportamiento predeterminado del navegador de enviar una nueva solicitud de documento al servidor, pero en su lugar emula el navegador mediante la creación de una solicitud con enrutamiento y `recuperación` o `fetch` del lado del cliente `POST`
+
+2. Coincide con la nueva ruta y le envía la solicitud `<Form action="destroy">` `contacts/:contactId/destroy`
+
+3. Después de las redirecciones, React Router llama a todos los datos de la página para obtener los valores más recientes (esto es "revalidación"). ¡Ahora tiene nuevos valores y hace que los componentes se actualizcen! `action` `loader` `loaderData` `routes/contact.tsx`
+
+Agregue un `Form` `action`, React Router hace el resto.
+
+## Botón Cancelar
+
+En la página de edición tenermos un botón de cancelar que aún no hace nada. Nos gustaría que hiciera lo mismo que el botón de retroceso del navegador.
+
+Necesitaremos un controlador de clics en el botón, así como `useNavigate`.
+
+### 👉 Agregue el controlador de clic del botón "Cancelar" con `useNavigate`
+
+`app/routes/edit-contact.tsx`
+```bash
+import { Form, redirect, useNavigate } from "react-router";
+// existing imports & exports
+
+export default function EditContact({
+  loaderData,
+}: Route.ComponentProps) {
+  const { contact } = loaderData;
+  const navigate = useNavigate();
+
+  return (
+    <Form key={contact.id} id="contact-form" method="post">
+      {/* existing elements */}
+      <p>
+        <button type="submit">Save</button>
+        <button onClick={() => navigate(-1)} type="button">
+          Cancel
+        </button>
+      </p>
+    </Form>
+  );
+}
+```
+
+Ahora, cuando el usuario haga clic en "Cancelar", se le devolverá una entrada en el historial del navegador.
+
+> 🧐 ¿Por qué no hay en el botón? `event.preventDefault()`
+
+Aunque parezca redundante, es la forma HTML de evitar que un botón envíe su formulario. `<button type="button">`
+
+Dos características más para ir. ¡Estamos en la recta final!
+
+## `URLSearchParams` y Presentaciones `GET`
+
+Hasta ahora, toda nuestra interfaz de usuario interactiva ha sido enlaces que cambian la URL o que publican datos en funciones. El campo de búsqieda es interesante porque es una mezcla de ambos: pero solo cambia la URL, no cambian los datos. `form` `action` `form`
+
+Veamos qué sucede cuando enviamos el formulario de búsqueda:
+
+### 👉 Escriba un nombre en el campo de búsqueda y presione la tecla Intro
+
+Tenga en cuenta que la URL del navegador ahora contiene su consulta en la URL como `URLSearchParams`:
+
+`http://localhost:5173/?q=ryan`
+
+Dado que no es, React Router emula el navegador serializando `FormData` en `URLSearchParams` en lugar del cuerpo de la solicitud. `<Form method="post">`
+
+`loader` Las funciones tienen acceso a los parámetros de búsqueda desde el archivo. Vamos a usarlo para filtrar la lista: `request`
+
+### 👉 Filtrar la lista si hay `URLSearchParams`
+
+`app/layouts/sidebar`
+```bash
+// existing imports & exports
+
+export async function loader({
+  request,
+}: Route.LoaderArgs) {
+  const url = new URL(request.url);
+  const q = url.searchParams.get("q");
+  const contacts = await getContacts(q);
+  return { contacts };
+}
+
+// existing code
+```
+
+Debido a que se trata de un , no un , React Router no llama a la función. Enviar un es lo mismo que hacer clic en un enlace: solo cambia la URL. `GET` `POST` `action` `GET` `form`
+
+Esto también significa que es una navegación normal por la página. Puedes hacer clic en el botón Atrás para volver a donde estabas.
+
+## Sincronización de direcciones URL con el estado del formulario
+
+Aquí hay un par de problemas de UX de los que podemos ocuparnos rápidamente.
+
+1. Si vuelve a hacer clic después de una búsqueda, el campo del formulario seguirá teniendo el valor que ha introducido, aunque la lista ya no esté filtrada.
+
+2. Si actualiza la página después de realizar la búsqueda, el campo del formulario ya no tiene el valor, aunque la lista esté filtrada
+
+En otras palabras, la URL y el estado de nuestra entrada no están sincronizados.
+
+Resolvamos (2) primero y comencemos la entrada con el valor de la URL.
+
+### 👉 Devuelve `q` desde tu `cargador` o `loader`, establécelo como el valor predeterminado de la entrada
+
+`app/layouts/sidebar.tsx`
+```bash
+// existing imports & exports
+
+export async function loader({
+  request,
+}: Route.LoaderArgs) {
+  const url = new URL(request.url);
+  const q = url.searchParams.get("q");
+  const contacts = await getContacts(q);
+  return { contacts, q };
+}
+
+export default function SidebarLayout({
+  loaderData,
+}: Route.ComponentProps) {
+  const { contacts, q } = loaderData;
+  const navigation = useNavigation();
+
+  return (
+    <>
+      <div id="sidebar">
+        {/* existing elements */}
+        <div>
+          <Form id="search-form" role="search">
+            <input
+              aria-label="Search contacts"
+              defaultValue={q || ""}
+              id="q"
+              name="q"
+              placeholder="Search"
+              type="search"
+            />
+            {/* existing elements */}
+          </Form>
+          {/* existing elements */}
+        </div>
+        {/* existing elements */}
+      </div>
+      {/* existing elements */}
+    </>
+  );
+}
+```
+
+El campo de entrada mostrará la consulta si actualiza la página después de una búsqueda ahora.
+
+Ahora para el problema (1), haga clic en el botón Atrás y actualice la entrada. Podemos traer desde React para manipular el valor de la entrada en el DOM directamente. `useEffect`
+
+### 👉 Sincronizar el valor de entrada con `URLSearchParams`
+
+`app/layouts/sidebar.tsx`
+```bash
+// existing imports
+import { useEffect } from "react";
+
+// existing imports & exports
+
+export default function SidebarLayout({
+  loaderData,
+}: Route.ComponentProps) {
+  const { contacts, q } = loaderData;
+  const navigation = useNavigation();
+
+  useEffect(() => {
+    const searchField = document.getElementById("q");
+    if (searchField instanceof HTMLInputElement) {
+      searchField.value = q || "";
+    }
+  }, [q]);
+
+  // existing code
+}
+```
+
+### 🤔 ¿No deberías usar un componente controlado y React State para esto?
+
+Ciertamente, podría hacer esto como un componente controlado. Tendrás más puntos de sincronización, pero tú decides.
+
+## Envío de `Form` `onChange`
+
+Aquí tenemos que tomar una decisión sobre el producto. A veces desea que el usuario envíe el para filtrar algunos resultados, otras veces desea filtrar a medida que el usuario escribe. Ya hemos implementado el primero, así que veamos cómo es el segundo. `form`
+
+Ya hemos visto, usaremos su primo,  `useSubmit`, para esto. `useNavigate`
+
+`app/layouts/sidebar.tsx`
+```bash
+import {
+  Form,
+  Link,
+  NavLink,
+  Outlet,
+  useNavigation,
+  useSubmit,
+} from "react-router";
+// existing imports & exports
+
+export default function SidebarLayout({
+  loaderData,
+}: Route.ComponentProps) {
+  const { contacts, q } = loaderData;
+  const navigation = useNavigation();
+  const submit = useSubmit();
+
+  // existing code
+
+  return (
+    <>
+      <div id="sidebar">
+        {/* existing elements */}
+        <div>
+          <Form
+            id="search-form"
+            onChange={(event) =>
+              submit(event.currentTarget)
+            }
+            role="search"
+          >
+            {/* existing elements */}
+          </Form>
+          {/* existing elements */}
+        </div>
+        {/* existing elements */}
+      </div>
+      {/* existing elements */}
+    </>
+  );
+}
+```
+
+A medida que escribe, ¡ahora se envía automáticamente! `form`
+
+Anote el argumento que se va a presentar o `submit`. La función serializará y enviará cualquier formulario que le pases. Estamos de paso. El es el nodo DOM al que se adjunta el evento. `submit` `event.currentTarget` `currentTarget` `form`
+
+## Adición de un control giratorio de búsqueda
+
+En una aplicación de producción, es probable que esta búsqueda busque registros en una base de datos que sea demasiado grande para enviarlos todos a la vez y filtrar el lado del cliente. Es por eso que esta demostración tiene una latencia de red falsa.
+
+Sin ningún indicador de carga, la búsqueda se siente un poco lenta. Incluso si pudiéramos hacer que nuestra base de datos fuera más rápida, siempre tendremos la latencia de red del usuario en el camino y fuera de nuestro control.
+
+Para una mejor experiencia de usuario, agreguemos algunos comentarios inmediatos sobre la interfaz de usuario para la búsqueda. Volveremos a usar `useNavigation`
+
+### 👉 Agrega una variable para saber si estamos buscando
+
+`app/layouts/sidebar.tsx`
+```bash
+// existing imports & exports
+
+export default function SidebarLayout({
+  loaderData,
+}: Route.ComponentProps) {
+  const { contacts, q } = loaderData;
+  const navigation = useNavigation();
+  const submit = useSubmit();
+  const searching =
+    navigation.location &&
+    new URLSearchParams(navigation.location.search).has(
+      "q"
+    );
+
+  // existing code
+}
+```
+Cuando no ocurra nada, será , pero cuando el usuario navegue, se rellenará con la siguiente ubicación mientras se cargan los datos. A continuación, comprobamos si están buscando con. `navigation.location` `undefined` `location.search`
+
+### 👉 Agregar clases a los elementos del formulario de búsqueda mediante el nuevo estado de `searching` 
+
+`app/layouts/sidebar.tsx`
+```bash
+// existing imports & exports
+
+export default function SidebarLayout({
+  loaderData,
+}: Route.ComponentProps) {
+  // existing code
+
+  return (
+    <>
+      <div id="sidebar">
+        {/* existing elements */}
+        <div>
+          <Form
+            id="search-form"
+            onChange={(event) =>
+              submit(event.currentTarget)
+            }
+            role="search"
+          >
+            <input
+              aria-label="Search contacts"
+              className={searching ? "loading" : ""}
+              defaultValue={q || ""}
+              id="q"
+              name="q"
+              placeholder="Search"
+              type="search"
+            />
+            <div
+              aria-hidden
+              hidden={!searching}
+              id="search-spinner"
+            />
+          </Form>
+          {/* existing elements */}
+        </div>
+        {/* existing elements */}
+      </div>
+      {/* existing elements */}
+    </>
+  );
+}
+```
+
+Puntos extra, evite desvanecer la pantalla principal al buscar:
+
+`app/layouts/sidebar.tsx`
+```bash
+// existing imports & exports
+
+export default function SidebarLayout({
+  loaderData,
+}: Route.ComponentProps) {
+  // existing code
+
+  return (
+    <>
+      {/* existing elements */}
+      <div
+        className={
+          navigation.state === "loading" && !searching
+            ? "loading"
+            : ""
+        }
+        id="detail"
+      >
+        <Outlet />
+      </div>
+      {/* existing elements */}
+    </>
+  );
+}
+```
+
+Ahora debería tener un bonito control giratorio en el lado izquierdo de la entrada de búsqueda.
+
+![alt text](image-9.png)
+
+## Administración de la pila de historial
+
+Dado que el formulario se envía para cada pulsación de tecla, escribir los caracteres "alex" y luego eliminarlos con retroceso da como resultado una enorme pila de historial 😂. Definitivamente no queremos esto:
+
+![alt text](image-10.png)
+
+Podemos evitar esto reemplazando la entrada actual en la pila de historial con la página siguiente, en lugar de empujar hacia ella.
+
+### 👉 Usar `replace` en `submit`
+
+`app/layouts/sidebar.tsx`
+```bash
+// existing imports & exports
+
+export default function SidebarLayout({
+  loaderData,
+}: Route.ComponentProps) {
+  // existing code
+
+  return (
+    <>
+      <div id="sidebar">
+        {/* existing elements */}
+        <div>
+          <Form
+            id="search-form"
+            onChange={(event) => {
+              const isFirstSearch = q === null;
+              submit(event.currentTarget, {
+                replace: !isFirstSearch,
+              });
+            }}
+            role="search"
+          >
+            {/* existing elements */}
+          </Form>
+          {/* existing elements */}
+        </div>
+        {/* existing elements */}
+      </div>
+      {/* existing elements */}
+    </>
+  );
+}
+```
+Después de una verificación rápida si esta es la primera búsqueda o no, decidimos reemplazar. Ahora, la primera búsqueda agregará una nueva entrada, pero cada pulsación de tecla después de eso reemplazará la entrada actual. En lugar de hacer clic 7 veces para eliminar la búsqueda, los usuarios solo tienen que hacer clic una vez.
+
+## `Form` Sin navegación
+
+Hasta ahora, todos nuestros formularios han cambiado la URL. Si bien estos flujos de usuario son comunes, es igualmente común querer enviar un formulario sin provocar una navegación.
+
+Para estos casos, tenemos `useFetcher`. Nos permite comunicarnos con el servidor sin provocar una navegación. `action` `loader`
+
+El ★ botón de la página de contacto tiene sentido para esto. No estamos creando ni eliminando un nuevo registro, y no queremos cambiar de página. Simplemente queremos cambiar los datos de la página que estamos viendo.
+
+### 👉 Cambiar el formulario `<Favorite>` a un formulario de recuperación
+
+`app/routes/contact.tsx`
+```bash
+import { Form, useFetcher } from "react-router";
+
+// existing imports & exports
+
+function Favorite({
+  contact,
+}: {
+  contact: Pick<ContactRecord, "favorite">;
+}) {
+  const fetcher = useFetcher();
+  const favorite = contact.favorite;
+
+  return (
+    <fetcher.Form method="post">
+      <button
+        aria-label={
+          favorite
+            ? "Remove from favorites"
+            : "Add to favorites"
+        }
+        name="favorite"
+        value={favorite ? "false" : "true"}
+      >
+        {favorite ? "★" : "☆"}
+      </button>
+    </fetcher.Form>
+  );
+}
+```
+
+Este formulario ya no provocará una navegación, sino que simplemente obtendrá el archivo . Hablando de eso... Esto no funcionará hasta que creemos el archivo . `action` `action`
+
+### 👉 Crear el `action`
+
+`app/routes/contact.tsx`
+```bash
+// existing imports
+import { getContact, updateContact } from "../data";
+// existing imports
+
+export async function action({
+  params,
+  request,
+}: Route.ActionArgs) {
+  const formData = await request.formData();
+  return updateContact(params.contactId, {
+    favorite: formData.get("favorite") === "true",
+  });
+}
+
+// existing code
+```
+
+Muy bien, ¡estamos listos para hacer clic en la estrella junto al nombre del usuario!
+
+![alt text](image-11.png)
+
+Compruébalo, ambas estrellas se actualizan automáticamente. Nuestro nuevo funciona casi exactamente igual que el que hemos estado usando: llama a la acción y luego todos los datos se revalidan automáticamente, incluso sus errores se detectarán de la misma manera. `<fetcher.Form method="post">` `<Form>`
+
+Sin embargo, hay una diferencia clave, no es una navegación, por lo que la URL no cambia y la pila del historial no se ve afectada.
+
+## Interfaz de usuario optimista
+
+Probablemente hayas notado que la aplicación no respondía cuando hicimos clic en el botón de favoritos de la última sección. Una vez más, agregamos algo de latencia de red porque la vas a tener en el mundo real.
+
+Para dar al usuario algo de retroalimentación, podríamos poner la estrella en un estado de carga con (muy parecido al de antes), pero esta vez podemos hacer algo aún mejor. Podemos usar una estrategia llamada "Interfaz de usuario optimista". `fetcher.state` `navigation.state`
+
+El recuperador conoce el `FormData` que se envía, por lo que está disponible para usted en . Lo usaremos para actualizar inmediatamente el estado de la estrella, aunque la red no haya terminado. Si finalmente se produce un error en la actualización, la interfaz de usuario volverá a los datos reales. `action` `fetcher.formData`
+
+### 👉 Leer el valor optimista de `fetcher.formData`
+
+`app/routes/contact.tsx`
+```bash
+// existing code
+
+function Favorite({
+  contact,
+}: {
+  contact: Pick<ContactRecord, "favorite">;
+}) {
+  const fetcher = useFetcher();
+  const favorite = fetcher.formData
+    ? fetcher.formData.get("favorite") === "true"
+    : contact.favorite;
+
+  return (
+    <fetcher.Form method="post">
+      <button
+        aria-label={
+          favorite
+            ? "Remove from favorites"
+            : "Add to favorites"
+        }
+        name="favorite"
+        value={favorite ? "false" : "true"}
+      >
+        {favorite ? "★" : "☆"}
+      </button>
+    </fetcher.Form>
+  );
+}
+```
+Ahora la estrella cambia inmediatamente al nuevo estado cuando haces clic en ella.
+
+Eso es todo! Gracias por darle una oportunidad a React Router. Esperamos que este tutorial te brinde un comienzo sólido para crear excelentes experiencias de usuario. Hay mucho más que puedes hacer, así que asegúrate de consultar todas las API 😀
