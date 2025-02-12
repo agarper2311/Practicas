@@ -1,4 +1,4 @@
-import { Form, NavLink, Outlet, useNavigation, useSubmit } from "react-router"; // Corrección en la importación
+import { Form, Link, NavLink, Outlet, useNavigation, useSubmit } from "react-router"; // Corrección en la importación
 import { getContacts } from "../data";
 import type { Route } from "./+types/sidebar";
 import { useEffect, /*useState*/ } from "react";
@@ -8,11 +8,6 @@ export async function loader({request,}: Route.LoaderArgs) {
   const q = url.searchParams.get("q");
   const contacts = await getContacts(q);
   return { contacts, q };
-}
-
-export async function clientLoader() {
-  const contacts = await getContacts();
-  return { contacts };
 }
 
 export default function SidebarLayout({
@@ -48,7 +43,7 @@ export default function SidebarLayout({
     <>
       <div id="sidebar">
         <h1>
-          <NavLink to="about">React Router Contacts</NavLink>
+          <Link prefetch="intent" to="about">React Router Contacts</Link>
         </h1>
 
         <div>
